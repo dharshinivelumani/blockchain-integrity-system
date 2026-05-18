@@ -17,30 +17,35 @@ from flask_login import (
     logout_user
 )
 
+# ---------------- APP INIT ---------------- #
+
 app = Flask(__name__)
 
 app.secret_key = 'secretkey'
 
 login_manager = LoginManager()
-
 login_manager.init_app(app)
-
 login_manager.login_view = 'login'
 
-# AES Secret Key
+# FIX 4 — create uploads folder for Render
+os.makedirs("uploads", exist_ok=True)
+
+# AES Key
 key = get_random_bytes(16)
 
 blockchain = Blockchain()
 
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# User Class
+
+# ---------------- USER AUTH ---------------- #
+
 class User(UserMixin):
-
     def __init__(self, id):
         self.id = id
 
 
-# Default User
 users = {
     'admin': {
         'password': 'admin123'
@@ -48,32 +53,26 @@ users = {
 }
 
 
-# Load User
 @login_manager.user_loader
 def load_user(user_id):
-
     return User(user_id)
 
 
-UPLOAD_FOLDER = 'uploads'
+# ---------------- HASH FUNCTION ---------------- #
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-
-# SHA-256 Hash Function
 def generate_hash(filepath):
 
     sha256 = hashlib.sha256()
 
     with open(filepath, 'rb') as f:
-
         while chunk := f.read(4096):
             sha256.update(chunk)
 
     return sha256.hexdigest()
 
 
-# AES File Encryption
+# ---------------- AES ENCRYPTION ---------------- #
+
 def encrypt_file(filepath):
 
     cipher = AES.new(key, AES.MODE_CBC)
@@ -88,14 +87,14 @@ def encrypt_file(filepath):
     encrypted_path = filepath + '.enc'
 
     with open(encrypted_path, 'wb') as f:
-
         f.write(cipher.iv)
         f.write(encrypted_data)
 
     return encrypted_path
 
 
-# Login Route
+# ---------------- ROUTES ---------------- #
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
 
@@ -107,31 +106,25 @@ def login():
         if username in users and users[username]['password'] == password:
 
             user = User(username)
-
             login_user(user)
 
             return redirect('/dashboard')
 
-        return '''
-        <h2>Invalid Username or Password</h2>
-        '''
+        return "<h2>Invalid Credentials</h2>"
 
     return render_template('login.html')
 
 
-# Home Page
 @app.route('/')
 def home():
     return render_template('index.html')
 
 
-# Dashboard
-@login_required
 @app.route('/dashboard')
+@login_required
 def dashboard():
 
     total_blocks = len(blockchain.chain)
-
     total_files = total_blocks - 1
 
     return render_template(
@@ -141,7 +134,6 @@ def dashboard():
     )
 
 
-# Upload Route
 @app.route('/upload', methods=['POST'])
 def upload():
 
@@ -149,83 +141,33 @@ def upload():
 
     if file:
 
-        filepath = os.path.join(
-            app.config['UPLOAD_FOLDER'],
-            file.filename
-        )
-
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
         file.save(filepath)
 
-        # Encrypt File
+        # Encrypt
         encrypted_file = encrypt_file(filepath)
 
-        print("Encrypted File:", encrypted_file)
-
-        # Generate SHA-256 Hash
+        # Hash
         file_hash = generate_hash(filepath)
 
-        # Get Previous Block Hash
+        # Blockchain
         previous_hash = blockchain.chain[-1]['hash']
 
-        # Create Blockchain Block
-        block = blockchain.create_block(
-            previous_hash,
-            file_hash
-        )
+        block = blockchain.create_block(previous_hash, file_hash)
 
-        print(block)
+        return f"""
+        <h2>Upload Success</h2>
 
-        return f'''
-        <h2>File Uploaded Successfully</h2>
+        <p>Hash: {file_hash}</p>
+        <p>Encrypted: {encrypted_file}</p>
+        <p>Block: {block['index']}</p>
 
-        <p><b>SHA-256 Hash:</b></p>
-        <p>{file_hash}</p>
-
-        <p><b>Encrypted File:</b></p>
-        <p>{encrypted_file}</p>
-
-        <p><b>Block Number:</b></p>
-        <p>{block['index']}</p>
-
-        <br>
-
-        <a href="/dashboard">
-            Open Dashboard
-        </a>
-
-        <br><br>
-
-        <a href="/verify">
-            Verify File Integrity
-        </a>
-
-        <br><br>
-
-        <a href="/blockchain">
-            View Blockchain
-        </a>
-
-        <br><br>
-
-        <a href="/logout">
-            Logout
-        </a>
-        '''
+        <a href="/dashboard">Dashboard</a>
+        """
 
     return "No File Selected"
 
 
-# View Blockchain
-@app.route('/blockchain')
-def view_blockchain():
-
-    return {
-        'chain': blockchain.chain,
-        'length': len(blockchain.chain)
-    }
-
-
-# Verify Integrity
 @app.route('/verify', methods=['GET', 'POST'])
 def verify():
 
@@ -233,59 +175,37 @@ def verify():
 
         file = request.files['file']
 
-        if file:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+        file.save(filepath)
 
-            filepath = os.path.join(
-                app.config['UPLOAD_FOLDER'],
-                file.filename
-            )
+        new_hash = generate_hash(filepath)
 
-            file.save(filepath)
+        for block in blockchain.chain:
+            if block['file_hash'] == new_hash:
+                return "<h2 style='color:green'>File Verified</h2>"
 
-            # Generate New Hash
-            new_hash = generate_hash(filepath)
-
-            # Verify with Blockchain
-            for block in blockchain.chain:
-
-                if block['file_hash'] == new_hash:
-
-                    return f'''
-                    <h2 style="color:green;">
-                    ✔ File Integrity Verified
-                    </h2>
-
-                    <p>File is Safe</p>
-
-                    <a href="/dashboard">
-                        Open Dashboard
-                    </a>
-                    '''
-
-            return f'''
-            <h2 style="color:red;">
-            ⚠ File Tampered
-            </h2>
-
-            <p>Integrity Verification Failed</p>
-
-            <a href="/dashboard">
-                Open Dashboard
-            </a>
-            '''
+        return "<h2 style='color:red'>Tampered File</h2>"
 
     return render_template('verify.html')
 
 
-# Logout Route
+@app.route('/blockchain')
+def view_blockchain():
+    return {
+        'chain': blockchain.chain,
+        'length': len(blockchain.chain)
+    }
+
+
 @app.route('/logout')
 @login_required
 def logout():
-
     logout_user()
-
     return redirect('/login')
 
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# ---------------- FIX 3 — RENDER ENTRY POINT ---------------- #
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
