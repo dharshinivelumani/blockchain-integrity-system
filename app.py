@@ -17,7 +17,7 @@ from flask_login import (
     logout_user
 )
 
-# ---------------- APP INIT ---------------- #
+# ---------------- APP SETUP ---------------- #
 
 app = Flask(__name__)
 
@@ -27,7 +27,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# FIX 4 — create uploads folder for Render
+# Create uploads folder (important for Render)
 os.makedirs("uploads", exist_ok=True)
 
 # AES Key
@@ -39,7 +39,7 @@ UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 
-# ---------------- USER AUTH ---------------- #
+# ---------------- USER SYSTEM ---------------- #
 
 class User(UserMixin):
     def __init__(self, id):
@@ -144,10 +144,10 @@ def upload():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
         file.save(filepath)
 
-        # Encrypt
+        # Encrypt file
         encrypted_file = encrypt_file(filepath)
 
-        # Hash
+        # Hash file
         file_hash = generate_hash(filepath)
 
         # Blockchain
@@ -157,12 +157,12 @@ def upload():
 
         return f"""
         <h2>Upload Success</h2>
-
         <p>Hash: {file_hash}</p>
-        <p>Encrypted: {encrypted_file}</p>
-        <p>Block: {block['index']}</p>
+        <p>Encrypted File: {encrypted_file}</p>
+        <p>Block Index: {block['index']}</p>
 
-        <a href="/dashboard">Dashboard</a>
+        <br>
+        <a href="/dashboard">Go to Dashboard</a>
         """
 
     return "No File Selected"
@@ -182,9 +182,9 @@ def verify():
 
         for block in blockchain.chain:
             if block['file_hash'] == new_hash:
-                return "<h2 style='color:green'>File Verified</h2>"
+                return "<h2 style='color:green'>✔ File Verified</h2>"
 
-        return "<h2 style='color:red'>Tampered File</h2>"
+        return "<h2 style='color:red'>⚠ File Tampered</h2>"
 
     return render_template('verify.html')
 
@@ -204,8 +204,9 @@ def logout():
     return redirect('/login')
 
 
-# ---------------- FIX 3 — RENDER ENTRY POINT ---------------- #
+# ---------------- RENDER FIX (STEP 6) ---------------- #
 
 if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
